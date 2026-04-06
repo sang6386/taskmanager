@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Task Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="sidebarWrap"></div>
+<div class="app-layout">
+  <div class="main-content">
+    <div class="page-header">
+      <h1 id="welcomeMsg">Dashboard</h1>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card"><div class="number" id="sTodo">—</div><div class="label">📝 Todo</div></div>
+      <div class="stat-card"><div class="number" id="sInProgress">—</div><div class="label">🔄 Đang làm</div></div>
+      <div class="stat-card"><div class="number" id="sReview">—</div><div class="label">👀 Review</div></div>
+      <div class="stat-card"><div class="number" id="sDone">—</div><div class="label">✅ Hoàn thành</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <!-- Recent Tasks -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3>📋 Tasks gần đây</h3>
+          <button class="btn btn-sm btn-outline" onclick="goto('tasks')">Xem tất cả</button>
+        </div>
+        <div id="recentTasks"><p class="text-gray">Đang tải...</p></div>
+      </div>
+
+      <!-- My Projects -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3>📁 Projects của tôi</h3>
+          <button class="btn btn-sm btn-outline" onclick="goto('projects')">Xem tất cả</button>
+        </div>
+        <div id="myProjects"><p class="text-gray">Đang tải...</p></div>
+      </div>
+    </div>
+
+    <!-- Overdue alert -->
+    <div id="overdueAlert" class="hidden" style="margin-top:16px;padding:16px;background:#fef2f2;border:2px solid #fecaca;border-radius:12px;color:#991b1b;">
+      ⚠️ Bạn có <strong id="overdueCount">0</strong> task đã quá hạn!
+      <button class="btn btn-sm btn-danger" style="margin-left:12px;" onclick="goto('tasks')">Xem ngay</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/js/layout.js"></script>
+<script>
+  if (!requireAuth()) throw new Error();
+  let user = getUser();
+  renderSidebar('dashboard');
+  initSocket();
+  document.getElementById('welcomeMsg').textContent = `👋 Xin chào, ${user.fullName || user.username}!`;
+
+  async function loadDashboard() {
+    try {
+      // Thống kê
+      let stats = await api('GET', '/tasks/stats');
+      let statusMap = {};
+      (stats.by_status || []).forEach(s => statusMap[s.status] = s.count);
+      document.getElementById('sTodo').textContent       = statusMap.todo        || 0;
+      document.getElementById('sInProgress').textContent = statusMap.in_progress || 0;
+      document.getElementById('sReview').textContent     = statusMap.review      || 0;
+      document.getElementById('sDone').textContent       = statusMap.done        || 0;
+
+      if (stats.overdue > 0) {
+        document.getElementById('overdueAlert').classList.remove('hidden');
+        document.getElementById('overdueCount').textContent = stats.overdue;
+      }
+
+      // Recent tasks
+      let tasksData = await api('GET', `/tasks?limit=5&assignee_id=${user.id}`);
+      let tasksHtml = (tasksData.tasks || []).map(t => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;">
+          <div>
+            <div style="font-size:14px;font-weight:600;">${t.title}</div>
+            <div style="font-size:12px;color:#6b7280;">${t.project_name || ''} · ${fmtDate(t.deadline)}</div>
+          </div>
+          ${statusBadge(t.status)}
+        </div>`).join('') || '<p class="text-gray">Chưa có task nào</p>';
+      document.getElementById('recentTasks').innerHTML = tasksHtml;
+
+      // My projects
+      let projData = await api('GET', '/projects?limit=5');
+      let projHtml = (projData.projects || []).map(p => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="localStorage.setItem('projectId',${p.id});goto('tasks')">
+          <div>
+            <div style="font-size:14px;font-weight:600;">${p.name}</div>
+            <div style="font-size:12px;color:#6b7280;">${p.task_count || 0} tasks</div>
+          </div>
+          <span class="badge badge-${p.status}">${p.status}</span>
+        </div>`).join('') || '<p class="text-gray">Chưa có project nào</p>';
+      document.getElementById('myProjects').innerHTML = projHtml;
+
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  loadDashboard();
+</script>
+</body>
+</html>

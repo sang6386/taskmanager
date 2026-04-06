@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+require('dotenv').config();
+var app = require('../app');
+var http = require('http');
+var { Server } = require('socket.io');
+var { initSocket } = require('../socket/socket');
+
+var port = process.env.PORT || 3000;
+app.set('port', port);
+
+var server = http.createServer(app);
+
+// Khởi tạo Socket.io
+var io = new Server(server, {
+  cors: { origin: '*' }
+});
+initSocket(io);
+
+// Gắn io vào app để dùng trong routes
+app.set('io', io);
+
+server.listen(port);
+server.on('listening', function () {
+  console.log('');
+  console.log('🚀 Task Manager đang chạy!');
+  console.log('📡 URL: http://localhost:' + port);
+  console.log('🌍 ENV: ' + (process.env.NODE_ENV || 'development'));
+  console.log('');
+});

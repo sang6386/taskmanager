@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects — Task Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="sidebarWrap"></div>
+<div class="app-layout">
+  <div class="main-content">
+    <div class="page-header">
+      <h1>📁 Projects</h1>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Tạo Project</button>
+    </div>
+    <div class="card-grid" id="projectGrid"><p class="text-gray">Đang tải...</p></div>
+  </div>
+</div>
+
+<!-- Modal tạo/sửa project -->
+<div class="modal-overlay hidden" id="projectModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Tạo Project</h2>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="form-group"><label>Tên Project *</label><input type="text" id="pName" placeholder="Tên project..."></div>
+    <div class="form-group"><label>Mô tả</label><textarea id="pDesc" placeholder="Mô tả..."></textarea></div>
+    <div class="form-group" id="pStatusWrap" style="display:none;">
+      <label>Trạng thái</label>
+      <select id="pStatus">
+        <option value="active">Active</option>
+        <option value="completed">Completed</option>
+        <option value="archived">Archived</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Huỷ</button>
+      <button class="btn btn-primary" onclick="saveProject()">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal chi tiết project + members -->
+<div class="modal-overlay hidden" id="detailModal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <h2 id="detailName">Chi tiết Project</h2>
+      <button class="modal-close" onclick="document.getElementById('detailModal').classList.add('hidden')">✕</button>
+    </div>
+    <div id="detailBody"></div>
+    <div style="margin-top:16px;">
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:12px;">👥 Thành viên</h3>
+      <div id="memberList"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;" id="addMemberWrap">
+        <input type="number" id="addUserId" placeholder="User ID..." style="padding:8px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;width:120px;">
+        <select id="addMemberRole" style="padding:8px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;">
+          <option value="editor">Editor</option>
+          <option value="viewer">Viewer</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="addMember()">Thêm</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('detailModal').classList.add('hidden')">Đóng</button>
+      <button class="btn btn-primary btn-sm" onclick="openTasksOfProject()">📋 Xem Tasks</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/js/layout.js"></script>
+<script>
+  if (!requireAuth()) throw new Error();
+  renderSidebar('projects');
+  initSocket();
+
+  let editingId = null;
+  let currentProjectId = null;
+  let user = getUser();
+
+  async function loadProjects() {
+    try {
+      let data = await api('GET', '/projects?limit=50');
+      let projects = data.projects || [];
+      if (!projects.length) {
+        document.getElementById('projectGrid').innerHTML = '<p class="text-gray">Chưa có project nào. Hãy tạo project đầu tiên!</p>';
+        return;
+      }
+      document.getElementById('projectGrid').innerHTML = projects.map(p => `
+        <div class="project-card" onclick="openDetail(${p.id})">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+            <h3>${p.name}</h3>
+            <span class="badge badge-${p.status}">${p.status}</span>
+          </div>
+          <p>${p.description || 'Không có mô tả'}</p>
+          <div class="project-meta">
+            <span>📋 ${p.task_count || 0} tasks</span>
+            <span>👤 ${p.owner_username}</span>
+            <span>${p.my_role}</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;" onclick="event.stopPropagation()">
+            ${(p.owner_id === user.id || user.role === 'admin') ? `
+            <button class="btn btn-sm btn-outline" onclick="openEdit(${p.id},'${p.name}','${p.description||''}','${p.status}')">✏️</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">🗑️</button>` : ''}
+            <button class="btn btn-sm btn-primary" onclick="localStorage.setItem('projectId',${p.id});goto('tasks')">📋 Tasks</button>
+          </div>
+        </div>`).join('');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function openCreateModal() {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'Tạo Project';
+    document.getElementById('pName').value = '';
+    document.getElementById('pDesc').value = '';
+    document.getElementById('pStatusWrap').style.display = 'none';
+    document.getElementById('projectModal').classList.remove('hidden');
+  }
+
+  function openEdit(id, name, desc, status) {
+    editingId = id;
+    document.getElementById('modalTitle').textContent = 'Sửa Project';
+    document.getElementById('pName').value   = name;
+    document.getElementById('pDesc').value   = desc;
+    document.getElementById('pStatus').value = status;
+    document.getElementById('pStatusWrap').style.display = 'block';
+    document.getElementById('projectModal').classList.remove('hidden');
+  }
+
+  function closeModal() { document.getElementById('projectModal').classList.add('hidden'); }
+
+  async function saveProject() {
+    let name = document.getElementById('pName').value.trim();
+    let description = document.getElementById('pDesc').value.trim();
+    if (!name) { showToast('Tên project không được để trống', 'error'); return; }
+    try {
+      if (editingId) {
+        let status = document.getElementById('pStatus').value;
+        await api('PUT', `/projects/${editingId}`, { name, description, status });
+        showToast('Đã cập nhật project!');
+      } else {
+        await api('POST', '/projects', { name, description });
+        showToast('Đã tạo project!');
+      }
+      closeModal();
+      loadProjects();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function deleteProject(id) {
+    if (!confirm('Xoá project này? Tất cả tasks sẽ bị xoá!')) return;
+    try {
+      await api('DELETE', `/projects/${id}`);
+      showToast('Đã xoá project!');
+      loadProjects();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function openDetail(id) {
+    currentProjectId = id;
+    try {
+      let p = await api('GET', `/projects/${id}`);
+      document.getElementById('detailName').textContent = p.name;
+      document.getElementById('detailBody').innerHTML = `
+        <p style="color:#6b7280;font-size:14px;margin-bottom:8px;">${p.description || ''}</p>
+        <div style="display:flex;gap:12px;font-size:13px;color:#6b7280;">
+          <span>📋 ${p.task_count} tasks</span>
+          <span>👤 Owner: ${p.owner_username}</span>
+          <span class="badge badge-${p.status}">${p.status}</span>
+        </div>`;
+      document.getElementById('memberList').innerHTML = (p.members || []).map(m => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="avatar" style="width:32px;height:32px;font-size:12px;">${(m.fullName||m.username||'?')[0].toUpperCase()}</div>
+            <div>
+              <div style="font-size:14px;font-weight:600;">${m.fullName || m.username}</div>
+              <div style="font-size:12px;color:#6b7280;">${m.email}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="badge badge-todo">${m.role}</span>
+            ${(p.owner_id === user.id || user.role === 'admin') && m.role !== 'owner' ? `
+            <button class="btn btn-sm btn-danger" onclick="removeMember(${m.id})">✕</button>` : ''}
+          </div>
+        </div>`).join('');
+      document.getElementById('detailModal').classList.remove('hidden');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function addMember() {
+    let userId = document.getElementById('addUserId').value;
+    let role   = document.getElementById('addMemberRole').value;
+    if (!userId) { showToast('Nhập User ID', 'error'); return; }
+    try {
+      await api('POST', `/projects/${currentProjectId}/members`, { user_id: parseInt(userId), role });
+      showToast('Đã thêm thành viên!');
+      openDetail(currentProjectId);
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function removeMember(userId) {
+    if (!confirm('Xoá thành viên này?')) return;
+    try {
+      await api('DELETE', `/projects/${currentProjectId}/members/${userId}`);
+      showToast('Đã xoá thành viên!');
+      openDetail(currentProjectId);
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function openTasksOfProject() {
+    localStorage.setItem('projectId', currentProjectId);
+    goto('tasks');
+  }
+
+  loadProjects();
+</script>
+</body>
+</html>
