@@ -22,7 +22,7 @@ app.set('io', io);
 server.listen(port);
 server.on('listening', function () {
   console.log('');
-  console.log('🚀 Task Manager API v2 đang chạy!');
+  console.log('🚀 Task Manager API đang chạy!');
   console.log('📡 URL: http://localhost:' + port);
   console.log('🌍 ENV: ' + (process.env.NODE_ENV || 'development'));
   console.log('');
