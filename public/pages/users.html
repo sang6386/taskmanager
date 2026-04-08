@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users — Task Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="sidebarWrap"></div>
+<div class="app-layout">
+  <div class="main-content">
+    <div class="page-header"><h1>👥 Quản lý Users <span style="font-size:13px;color:#6b7280;">(Admin only)</span></h1></div>
+    <div class="card">
+      <table class="task-table">
+        <thead>
+          <tr><th>ID</th><th>Username</th><th>Họ tên</th><th>Email</th><th>Role</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr>
+        </thead>
+        <tbody id="userTableBody"><tr><td colspan="8" class="text-gray text-center" style="padding:24px;">Đang tải...</td></tr></tbody>
+      </table>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;" id="pagination"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/js/layout.js"></script>
+<script>
+  if (!requireAuth()) throw new Error();
+  let me = getUser();
+  if (me.role !== 'admin') { showToast('Không có quyền truy cập', 'error'); setTimeout(() => goto('dashboard'), 1000); throw new Error(); }
+  renderSidebar('users');
+  initSocket();
+
+  let currentPage = 1;
+
+  async function loadUsers() {
+    try {
+      let data = await api('GET', `/users?page=${currentPage}&limit=10`);
+      let users = data.users || [];
+      document.getElementById('userTableBody').innerHTML = users.map(u => `
+        <tr>
+          <td>${u.id}</td>
+          <td><strong>${u.username}</strong></td>
+          <td>${u.fullName || '—'}</td>
+          <td style="font-size:13px;color:#6b7280;">${u.email}</td>
+          <td><span class="badge ${u.role==='admin'?'badge-urgent':'badge-in_progress'}">${u.role}</span></td>
+          <td><span class="badge ${u.is_active?'badge-done':'badge-todo'}">${u.is_active?'✅ Active':'❌ Khoá'}</span></td>
+          <td style="font-size:12px;color:#6b7280;">${fmtDate(u.created_at)}</td>
+          <td>
+            ${u.id !== me.id ? `
+            ${u.is_active
+              ? `<button class="btn btn-sm btn-danger" onclick="deactivate(${u.id})">🔒 Khoá</button>`
+              : `<button class="btn btn-sm btn-success" onclick="activate(${u.id})">🔓 Mở</button>`}` : '—'}
+          </td>
+        </tr>`).join('');
+
+      let totalPages = Math.ceil(data.total / 10);
+      document.getElementById('pagination').innerHTML = `
+        <span class="text-gray">${data.total} users</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm btn-outline" onclick="changePage(${currentPage-1})" ${currentPage<=1?'disabled':''}>←</button>
+          <span style="padding:6px 12px;font-size:13px;">${currentPage} / ${totalPages}</span>
+          <button class="btn btn-sm btn-outline" onclick="changePage(${currentPage+1})" ${currentPage>=totalPages?'disabled':''}>→</button>
+        </div>`;
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function changePage(p) { if (p < 1) return; currentPage = p; loadUsers(); }
+
+  async function deactivate(id) {
+    if (!confirm('Khoá tài khoản này?')) return;
+    try { await api('PATCH', `/users/${id}/deactivate`); showToast('Đã khoá tài khoản!'); loadUsers(); }
+    catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function activate(id) {
+    try { await api('PATCH', `/users/${id}/activate`); showToast('Đã mở khoá!'); loadUsers(); }
+    catch (e) { showToast(e.message, 'error'); }
+  }
+
+  loadUsers();
+</script>
+</body>
+</html>

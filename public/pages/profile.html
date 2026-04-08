@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hồ sơ — Task Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="sidebarWrap"></div>
+<div class="app-layout">
+  <div class="main-content">
+    <div class="page-header"><h1>👤 Hồ sơ cá nhân</h1></div>
+    <div style="display:grid;grid-template-columns:320px 1fr;gap:16px;">
+
+      <!-- Avatar + basic info -->
+      <div class="card" style="text-align:center;">
+        <div style="display:flex;justify-content:center;margin-bottom:16px;">
+          <div class="profile-avatar-wrap" onclick="document.getElementById('avatarInput').click()">
+            <div class="avatar" id="profileAvatar" style="width:80px;height:80px;font-size:28px;margin:auto;">U</div>
+            <div class="edit-icon">✏️</div>
+          </div>
+        </div>
+        <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="uploadAvatar()">
+        <div style="font-size:18px;font-weight:700;" id="profileName">—</div>
+        <div style="font-size:13px;color:#6b7280;margin-top:4px;" id="profileEmail">—</div>
+        <div style="margin-top:8px;" id="profileRole"></div>
+        <p style="font-size:12px;color:#9ca3af;margin-top:12px;">Click vào ảnh để thay đổi avatar</p>
+      </div>
+
+      <!-- Edit form -->
+      <div class="card">
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;">✏️ Cập nhật thông tin</h3>
+        <div class="form-group"><label>Họ tên</label><input type="text" id="editFullName" placeholder="Họ và tên..."></div>
+        <button class="btn btn-primary" onclick="saveProfile()">💾 Lưu thay đổi</button>
+
+        <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
+
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;">🔒 Đổi mật khẩu</h3>
+        <div class="form-group"><label>Mật khẩu cũ</label><input type="password" id="oldPw" placeholder="Mật khẩu cũ..."></div>
+        <div class="form-group"><label>Mật khẩu mới</label><input type="password" id="newPw" placeholder="Ít nhất 6 ký tự..."></div>
+        <div class="form-group"><label>Xác nhận mật khẩu mới</label><input type="password" id="confirmPw" placeholder="Nhập lại mật khẩu mới..."></div>
+        <button class="btn btn-outline" onclick="changePassword()">🔒 Đổi mật khẩu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/js/layout.js"></script>
+<script>
+  if (!requireAuth()) throw new Error();
+  renderSidebar('profile');
+  initSocket();
+
+  async function loadProfile() {
+    try {
+      let me = await api('GET', '/auth/me');
+      setUser(me);
+
+      document.getElementById('profileName').textContent  = me.fullName || me.username;
+      document.getElementById('profileEmail').textContent = me.email;
+      document.getElementById('profileRole').innerHTML    = `<span class="badge ${me.role==='admin'?'badge-urgent':'badge-in_progress'}">${me.role==='admin'?'⭐ Admin':'👤 Member'}</span>`;
+      document.getElementById('editFullName').value       = me.fullName || '';
+
+      let avatarEl = document.getElementById('profileAvatar');
+      if (me.avatarUrl) {
+        avatarEl.innerHTML = `<img src="${me.avatarUrl}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">`;
+      } else {
+        avatarEl.textContent = (me.fullName || me.username || 'U')[0].toUpperCase();
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function saveProfile() {
+    let fullName = document.getElementById('editFullName').value.trim();
+    try {
+      let updated = await api('PUT', '/auth/profile', { fullName });
+      setUser(updated);
+      showToast('Đã cập nhật hồ sơ!');
+      loadProfile();
+      renderSidebar('profile');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function changePassword() {
+    let oldpassword = document.getElementById('oldPw').value;
+    let newpassword = document.getElementById('newPw').value;
+    let confirmPw   = document.getElementById('confirmPw').value;
+    if (!oldpassword || !newpassword) { showToast('Nhập đủ thông tin', 'error'); return; }
+    if (newpassword !== confirmPw) { showToast('Mật khẩu mới không khớp', 'error'); return; }
+    if (newpassword.length < 6) { showToast('Mật khẩu mới ít nhất 6 ký tự', 'error'); return; }
+    try {
+      await api('POST', '/auth/changepassword', { oldpassword, newpassword });
+      showToast('Đổi mật khẩu thành công!');
+      ['oldPw','newPw','confirmPw'].forEach(id => document.getElementById(id).value = '');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  // Upload avatar - giống thầy upload one_file
+  async function uploadAvatar() {
+    let file = document.getElementById('avatarInput').files[0];
+    if (!file) return;
+    try {
+      let formData = new FormData();
+      formData.append('file', file);
+      let result = await api('POST', '/auth/avatar', formData, true);
+      setUser(result.user);
+      let avatarEl = document.getElementById('profileAvatar');
+      avatarEl.innerHTML = `<img src="${result.path}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">`;
+      showToast('Đã cập nhật avatar!');
+      renderSidebar('profile');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  loadProfile();
+</script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Lich su — Task Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="sidebarWrap"></div>
+<div class="app-layout">
+  <div class="main-content">
+    <div class="page-header">
+      <h1>📜 Lich su hoat dong</h1>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm btn-outline ${window._myLog!==false?'':'btn-primary'}" id="btnMy" onclick="switchMode('me')">Cua toi</button>
+        <button class="btn btn-sm btn-outline" id="btnAll" onclick="switchMode('all')">Tat ca (Admin)</button>
+      </div>
+    </div>
+    <div class="card">
+      <table class="task-table">
+        <thead>
+          <tr><th>Hanh dong</th><th>Doi tuong</th><th>Mo ta</th><th>Nguoi thuc hien</th><th>Thoi gian</th></tr>
+        </thead>
+        <tbody id="logBody"><tr><td colspan="5" class="text-gray text-center" style="padding:24px;">Dang tai...</td></tr></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:center;gap:8px;margin-top:12px;" id="pagination"></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/js/layout.js"></script>
+<script>
+  if (!requireAuth()) throw new Error();
+  renderSidebar('activity');
+  initSocket();
+
+  let currentPage = 1;
+  let mode = 'me';
+  let user = getUser();
+
+  function switchMode(m) {
+    mode = m;
+    currentPage = 1;
+    document.getElementById('btnMy').className  = `btn btn-sm btn-outline${m==='me'?' btn-primary':''}`;
+    document.getElementById('btnAll').className = `btn btn-sm btn-outline${m==='all'?' btn-primary':''}`;
+    loadLogs();
+  }
+
+  function actionBadge(action) {
+    let colors = {
+      create_task:'badge-in_progress', update_task:'badge-review',
+      update_status:'badge-done', delete_task:'badge-urgent',
+      add_comment:'badge-todo', create_project:'badge-in_progress',
+      update_project:'badge-review'
+    };
+    return `<span class="badge ${colors[action]||'badge-todo'}">${action.replace('_',' ')}</span>`;
+  }
+
+  async function loadLogs() {
+    try {
+      let path = mode === 'all' && user.role === 'admin'
+        ? `/activity-logs?page=${currentPage}&limit=20`
+        : `/activity-logs/me?page=${currentPage}&limit=20`;
+
+      let data = await api('GET', path);
+      let logs = data.logs || [];
+
+      if (!logs.length) {
+        document.getElementById('logBody').innerHTML = `<tr><td colspan="5" class="text-gray text-center" style="padding:24px;">Chua co lich su nao</td></tr>`;
+        return;
+      }
+
+      document.getElementById('logBody').innerHTML = logs.map(l => `
+        <tr>
+          <td>${actionBadge(l.action)}</td>
+          <td style="font-size:13px;"><span style="color:#6b7280;">${l.target_type}</span> #${l.target_id}</td>
+          <td style="font-size:13px;">${l.description || '—'}</td>
+          <td style="font-size:13px;">${l.fullName || l.username || '—'}</td>
+          <td style="font-size:12px;color:#6b7280;">${fmtDateTime(l.created_at)}</td>
+        </tr>`).join('');
+
+      let totalPages = Math.ceil(data.total / 20);
+      document.getElementById('pagination').innerHTML = totalPages > 1 ? `
+        <button class="btn btn-sm btn-outline" onclick="changePage(${currentPage-1})" ${currentPage<=1?'disabled':''}>←</button>
+        <span style="padding:6px 12px;font-size:13px;">${currentPage} / ${totalPages}</span>
+        <button class="btn btn-sm btn-outline" onclick="changePage(${currentPage+1})" ${currentPage>=totalPages?'disabled':''}>→</button>` : '';
+    } catch(e) {
+      if (e.message.includes('quyen')) {
+        document.getElementById('logBody').innerHTML = `<tr><td colspan="5" class="text-gray text-center" style="padding:24px;">Ban khong co quyen xem tat ca logs. Hien thi logs cua ban.</td></tr>`;
+        mode = 'me'; loadLogs();
+      } else showToast(e.message, 'error');
+    }
+  }
+
+  function changePage(p) { if (p < 1) return; currentPage = p; loadLogs(); }
+  loadLogs();
+</script>
+</body>
+</html>
